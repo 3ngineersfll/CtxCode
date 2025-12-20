@@ -1,0 +1,13 @@
+# Sample VDA Server List
+# One server name per line
+# Lines starting with # are ignored
+
+VDA-SERVER01
+VDA-SERVER02
+VDA-SERVER03
+VDA-SERVER04
+VDA-SERVER05
+
+# You can also use FQDNs
+# VDA-SERVER01.domain.com
+# VDA-SERVER02.domain.com
