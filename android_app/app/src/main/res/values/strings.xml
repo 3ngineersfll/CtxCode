@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Water Monitor</string>
+    <string name="connect_bluetooth">Connect Bluetooth</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="current_flow">Current Flow</string>
+    <string name="total_usage">Total Usage</string>
+    <string name="view_history">View History</string>
+    <string name="reset_counter">Reset Counter</string>
+    <string name="flow_rate_unit">L/min</string>
+    <string name="volume_unit">Liters</string>
+    <string name="status">Status</string>
+    <string name="not_connected">Not Connected</string>
+    <string name="connected">Connected</string>
+    <string name="connecting">Connecting...</string>
+    <string name="select_device">Select Bluetooth Device</string>
+    <string name="no_paired_devices">No paired Bluetooth devices found</string>
+    <string name="bluetooth_disabled">Bluetooth is disabled. Please enable it.</string>
+    <string name="usage_history">Usage History</string>
+    <string name="daily_usage">Daily Usage</string>
+    <string name="water_conservation_tip">Water Conservation Tip</string>
+</resources>
