@@ -7,6 +7,7 @@ import Leaderboard from './components/Leaderboard';
 import Challenges from './components/Challenges';
 import Achievements from './components/Achievements';
 import Rewards from './components/Rewards';
+import Devices from './components/Devices';
 import Navbar from './components/Navbar';
 import { authAPI } from './services/api';
 
@@ -75,6 +76,7 @@ function App() {
             <Route path="/challenges" element={<Challenges />} />
             <Route path="/achievements" element={<Achievements />} />
             <Route path="/rewards" element={<Rewards user={user} />} />
+            <Route path="/devices" element={<Devices />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>

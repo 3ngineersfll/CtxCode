@@ -126,3 +126,66 @@ export interface UserStats {
   challenges_completed: number;
   current_rank: number;
 }
+
+export interface Device {
+  id: string;
+  user_id: string;
+  device_name: string;
+  device_type: 'flow_sensor' | 'smart_valve' | 'leak_detector' | 'moisture_sensor';
+  location?: string;
+  mac_address?: string;
+  api_key: string;
+  firmware_version?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeviceStatus {
+  id: string;
+  device_id: string;
+  battery_level?: number;
+  signal_strength?: number;
+  is_online: boolean;
+  last_seen: string;
+  ip_address?: string;
+  uptime_seconds?: number;
+  error_count: number;
+  last_error?: string;
+  updated_at: string;
+}
+
+export interface DeviceReading {
+  id: string;
+  device_id: string;
+  flow_rate?: number;
+  total_volume?: number;
+  temperature?: number;
+  pressure?: number;
+  reading_timestamp: string;
+  synced: boolean;
+}
+
+export interface DeviceConfig {
+  id: string;
+  device_id: string;
+  config_key: string;
+  config_value?: string;
+  updated_at: string;
+}
+
+export interface DeviceRegistration {
+  device_name: string;
+  device_type: 'flow_sensor' | 'smart_valve' | 'leak_detector' | 'moisture_sensor';
+  location?: string;
+  mac_address?: string;
+  firmware_version?: string;
+}
+
+export interface MqttMessage {
+  device_id: string;
+  api_key: string;
+  type: 'reading' | 'status' | 'heartbeat';
+  data: any;
+  timestamp: string;
+}

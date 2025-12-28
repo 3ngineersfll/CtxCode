@@ -3,8 +3,12 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
+import Aedes from 'aedes';
+import { createServer as createNetServer } from 'net';
 import { initDatabase } from './database/init';
 import { LeaderboardService } from './services/leaderboard.service';
+import { DeviceService } from './services/device.service';
+import { ChallengeService } from './services/challenge.service';
 
 import authRoutes from './routes/auth.routes';
 import waterRoutes from './routes/water.routes';
@@ -12,6 +16,7 @@ import challengesRoutes from './routes/challenges.routes';
 import leaderboardRoutes from './routes/leaderboard.routes';
 import achievementsRoutes from './routes/achievements.routes';
 import rewardsRoutes from './routes/rewards.routes';
+import devicesRoutes from './routes/devices.routes';
 
 dotenv.config();
 
@@ -27,6 +32,7 @@ app.use('/api/challenges', challengesRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/achievements', achievementsRoutes);
 app.use('/api/rewards', rewardsRoutes);
+app.use('/api/devices', devicesRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -96,6 +102,64 @@ async function startServer() {
     await leaderboardService.updateLeaderboard('weekly');
     await leaderboardService.updateLeaderboard('monthly');
     console.log('✅ Leaderboards initialized');
+
+    // Initialize MQTT broker for IoT devices
+    const mqttBroker = Aedes();
+    const MQTT_PORT = process.env.MQTT_PORT || 1883;
+
+    mqttBroker.on('client', (client) => {
+      console.log(`📡 MQTT Client connected: ${client.id}`);
+    });
+
+    mqttBroker.on('clientDisconnect', (client) => {
+      console.log(`📡 MQTT Client disconnected: ${client.id}`);
+    });
+
+    mqttBroker.on('publish', async (packet, client) => {
+      if (!client || packet.topic.startsWith('$SYS/')) {
+        return;
+      }
+
+      try {
+        const topic = packet.topic;
+        const payload = JSON.parse(packet.payload.toString());
+
+        if (topic.startsWith('water/device/')) {
+          const db = await import('./database/init').then(m => m.getDatabase());
+          const deviceService = new DeviceService(await db);
+          const challengeService = new ChallengeService(await db);
+
+          const device = await deviceService.authenticateDevice(payload.device_id, payload.api_key);
+
+          if (!device) {
+            console.warn(`⚠️  Unauthorized device: ${payload.device_id}`);
+            return;
+          }
+
+          if (topic.endsWith('/reading')) {
+            await deviceService.saveReading(payload.device_id, payload.data);
+          } else if (topic.endsWith('/status')) {
+            await deviceService.updateDeviceStatus(payload.device_id, payload.data);
+          } else if (topic.endsWith('/usage')) {
+            await deviceService.processWaterUsage(
+              payload.device_id,
+              payload.data.volume,
+              payload.data.activity_type
+            );
+            await challengeService.updateChallengeProgress(device.user_id);
+          }
+
+          console.log(`📊 MQTT: ${topic} - Device: ${payload.device_id}`);
+        }
+      } catch (error) {
+        console.error('MQTT processing error:', error);
+      }
+    });
+
+    const mqttServer = createNetServer(mqttBroker.handle);
+    mqttServer.listen(MQTT_PORT, () => {
+      console.log(`📡 MQTT broker running on port ${MQTT_PORT}`);
+    });
 
     setInterval(async () => {
       const db = await import('./database/init').then(m => m.getDatabase());

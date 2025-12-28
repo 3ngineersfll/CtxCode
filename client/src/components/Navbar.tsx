@@ -27,6 +27,9 @@ function Navbar({ user, onLogout }: NavbarProps) {
         <Link to="/rewards" className={location.pathname === '/rewards' ? 'active' : ''}>
           Rewards
         </Link>
+        <Link to="/devices" className={location.pathname === '/devices' ? 'active' : ''}>
+          Devices
+        </Link>
         <div style={{ marginLeft: '16px', paddingLeft: '16px', borderLeft: '2px solid #e0e0e0' }}>
           <span style={{ marginRight: '16px', fontWeight: 600 }}>
             {user?.display_name || user?.username} | ⭐ {user?.total_points || 0} pts | Lv {user?.level || 1}

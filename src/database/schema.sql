@@ -129,9 +129,81 @@ CREATE TABLE IF NOT EXISTS user_rewards (
     FOREIGN KEY (reward_id) REFERENCES rewards(id) ON DELETE CASCADE
 );
 
+-- IoT Devices
+CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    device_name TEXT NOT NULL,
+    device_type TEXT NOT NULL,
+    location TEXT,
+    mac_address TEXT UNIQUE,
+    api_key TEXT UNIQUE NOT NULL,
+    firmware_version TEXT,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Device status and telemetry
+CREATE TABLE IF NOT EXISTS device_status (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    battery_level INTEGER,
+    signal_strength INTEGER,
+    is_online BOOLEAN DEFAULT 1,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ip_address TEXT,
+    uptime_seconds INTEGER,
+    error_count INTEGER DEFAULT 0,
+    last_error TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
+    UNIQUE(device_id)
+);
+
+-- Raw sensor readings (for debugging and analytics)
+CREATE TABLE IF NOT EXISTS device_readings (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    flow_rate REAL,
+    total_volume REAL,
+    temperature REAL,
+    pressure REAL,
+    reading_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    synced BOOLEAN DEFAULT 0,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
+-- Offline buffer for device data (used when device is offline)
+CREATE TABLE IF NOT EXISTS device_buffer (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    synced BOOLEAN DEFAULT 0,
+    sync_attempts INTEGER DEFAULT 0,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
+-- Device configurations
+CREATE TABLE IF NOT EXISTS device_configs (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    config_key TEXT NOT NULL,
+    config_value TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
+    UNIQUE(device_id, config_key)
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_water_usage_user_timestamp ON water_usage(user_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_water_usage_device ON water_usage(device_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_daily_summary_user_date ON daily_usage_summary(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_leaderboard_period ON leaderboard(period, rank);
 CREATE INDEX IF NOT EXISTS idx_challenges_active ON challenges(is_active, end_date);
 CREATE INDEX IF NOT EXISTS idx_user_challenges_user ON user_challenges(user_id, completed);
+CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_device_readings_timestamp ON device_readings(device_id, reading_timestamp);
+CREATE INDEX IF NOT EXISTS idx_device_buffer_synced ON device_buffer(device_id, synced);
