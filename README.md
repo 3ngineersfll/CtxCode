@@ -1,218 +1,197 @@
-# Citrix Black Screen Historical Impact Report
+# Water Conservation Game
 
-PowerShell script to identify and report on users historically impacted by Citrix black screen issues requiring explorer.exe restart.
+A competitive gamification platform for smart water measurement systems that rewards users for conserving water.
 
-## Problem Statement
+## Features
 
-Users reconnecting to Citrix sessions experience black screens. The only recovery method is restarting explorer.exe. This script helps identify:
-- Which users have been impacted
-- How frequently the issue occurs
-- Which VDA servers are affected
-- Historical patterns of the issue
+- **Smart Water Tracking**: Record and monitor water usage across different activities
+- **Gamification**: Earn points, level up, and unlock achievements
+- **Competitive Leaderboards**: Compete with others on daily, weekly, monthly, and all-time rankings
+- **Challenges**: Join conservation challenges to earn bonus rewards
+- **Rewards System**: Redeem points for eco-friendly rewards and vouchers
+- **Real-time Updates**: WebSocket support for live leaderboard updates
+- **Beautiful Dashboard**: Visualize your water usage trends and savings
 
-## Where to Scan: VDA vs CWA
+## Tech Stack
 
-**Scan the VDA (Virtual Delivery Agent)** - NOT the CWA (Citrix Workspace App)
+### Backend
+- Node.js + Express + TypeScript
+- SQLite database
+- WebSocket server for real-time updates
+- JWT authentication
+- bcrypt password hashing
 
-**Why VDA?**
-- The black screen occurs on the VDA where the session runs
-- Explorer.exe runs on the VDA, not the client
-- Session reconnection events are logged on the VDA
-- Event logs showing explorer.exe restarts are on the VDA
+### Frontend
+- React 18 + TypeScript
+- Vite build tool
+- Recharts for data visualization
+- React Router for navigation
+- Axios for API calls
 
-## Prerequisites
+## Quick Start
 
-- PowerShell 5.1 or higher
-- Remote Event Log access to VDA servers
-- Appropriate permissions to query event logs on VDA machines
-- Network connectivity to VDA servers
+### Prerequisites
+- Node.js 18+ and npm
+- Git
 
-## Usage Examples
+### Installation
 
-### Basic Usage - Single Server
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd CtxCode
+   ```
 
-```powershell
-.\Get-CitrixBlackScreenReport.ps1 -ComputerName "VDA-SERVER01"
+2. **Install backend dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Install frontend dependencies**
+   ```bash
+   cd client
+   npm install
+   cd ..
+   ```
+
+4. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+
+   Edit `.env` and configure:
+   - `JWT_SECRET`: Change to a secure random string
+   - `PORT`: Backend server port (default: 3000)
+   - `DB_PATH`: Database file path
+
+5. **Run the application**
+
+   Development mode (runs both backend and frontend):
+   ```bash
+   npm run dev
+   ```
+
+   Or run separately:
+   ```bash
+   # Backend
+   npm run server:dev
+
+   # Frontend (in another terminal)
+   npm run client:dev
+   ```
+
+6. **Access the application**
+   - Frontend: http://localhost:5173
+   - Backend API: http://localhost:3000
+   - WebSocket: ws://localhost:3000/ws
+
+## Project Structure
+
+```
+CtxCode/
+├── src/                      # Backend source code
+│   ├── database/            # Database schema and initialization
+│   ├── middleware/          # Express middleware (auth)
+│   ├── routes/              # API route handlers
+│   ├── services/            # Business logic services
+│   ├── types/               # TypeScript type definitions
+│   └── server.ts            # Main server file
+├── client/                  # Frontend React application
+│   ├── src/
+│   │   ├── components/      # React components
+│   │   ├── services/        # API service layer
+│   │   ├── App.tsx          # Main app component
+│   │   └── main.tsx         # Entry point
+│   ├── index.html
+│   └── vite.config.ts
+├── package.json
+├── tsconfig.json
+└── README.md
 ```
 
-### Pipeline Input from Text File
+## Documentation
 
-```powershell
-Get-Content vda-servers.txt | .\Get-CitrixBlackScreenReport.ps1 -DaysBack 60 -ExportPath "C:\Reports\BlackScreen.csv"
+- **[GAME_FEATURES.md](GAME_FEATURES.md)**: Complete guide to game mechanics, achievements, challenges, and strategies
+- **API Reference**: See below
+
+## Gamification System
+
+### Points System
+
+Users earn points by:
+- Recording water usage
+- Saving water compared to their baseline
+- Completing challenges
+- Earning achievements
+- Leveling up
+
+**Savings Multipliers:**
+- 20-30% savings: 1.5x points
+- 30-50% savings: 2x points
+- 50%+ savings: 3x points
+
+### Levels
+
+Level = floor(sqrt(total_points / 100)) + 1
+
+Each level up awards bonus points: Level × 100
+
+## API Reference
+
+See the full API documentation in the sections below or try the interactive endpoints.
+
+### Quick API Examples
+
+**Register a new user:**
+```bash
+curl -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"johndoe","email":"john@example.com","password":"securepass"}'
 ```
 
-### Multiple Servers with Export
-
-```powershell
-"VDA-SERVER01","VDA-SERVER02","VDA-SERVER03" | .\Get-CitrixBlackScreenReport.ps1 -ExportPath "C:\Reports\BlackScreen.csv"
+**Record water usage:**
+```bash
+curl -X POST http://localhost:3000/api/water/usage \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"amount":50.5,"activity_type":"shower"}'
 ```
 
-### Query Active Directory for All VDAs
-
-```powershell
-Get-ADComputer -Filter "Name -like 'VDA-*'" |
-    Select-Object -ExpandProperty Name |
-    .\Get-CitrixBlackScreenReport.ps1 -DaysBack 90 -ExportPath "C:\Reports\BlackScreen.csv"
+**Get leaderboard:**
+```bash
+curl http://localhost:3000/api/leaderboard?period=all-time \
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-### Detailed Output with All Events
+For complete API documentation, see the API endpoints section in the code or use the interactive frontend.
 
-```powershell
-Get-Content vda-servers.txt |
-    .\Get-CitrixBlackScreenReport.ps1 -IncludeDetailedEvents -ExportPath "C:\Reports\BlackScreen.csv"
+## Development
+
+**Build for production:**
+```bash
+npm run build
 ```
 
-## Parameters
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `ComputerName` | String[] | Yes | - | VDA server names (accepts pipeline input) |
-| `DaysBack` | Int | No | 30 | Number of days of history to scan |
-| `ExportPath` | String | No | - | Path to export CSV report |
-| `IncludeDetailedEvents` | Switch | No | False | Include detailed event information |
-
-## What the Script Detects
-
-The script identifies black screen incidents by analyzing:
-
-1. **Citrix Session Reconnection Events**
-   - Event IDs: 1000, 1006 from Citrix services
-   - Indicates user reconnecting to existing session
-
-2. **Explorer.exe Crashes/Restarts**
-   - Event IDs: 1000, 1002 from Application log
-   - Explorer.exe process terminations and restarts
-
-3. **Correlation Logic**
-   - Matches explorer.exe restarts within 15 minutes of session reconnection
-   - Flags as potential black screen incident
-
-## Output Format
-
-### Console Summary
-```
-================================================================
-  Citrix Black Screen Historical Impact Report
-================================================================
-
-SUMMARY STATISTICS:
-  Total Incidents: 47
-  Unique Users Impacted: 12
-  VDA Servers with Issues: 5
-
-TOP 5 MOST IMPACTED USERS:
-  DOMAIN\john.doe: 15 incidents
-  DOMAIN\jane.smith: 8 incidents
-  DOMAIN\bob.jones: 7 incidents
-  ...
+**Run production server:**
+```bash
+npm start
 ```
 
-### CSV Export Columns
+## Contributing
 
-- **Computer**: VDA server name
-- **Username**: Affected user account
-- **ReconnectionTime**: When user reconnected
-- **ExplorerRestartTime**: When explorer.exe was restarted
-- **ReconnectionEventID**: Event ID for reconnection
-- **ExplorerEventID**: Event ID for explorer restart
-- **TimeBetweenEvents**: Minutes between reconnect and restart
-- **EventCount**: Number of related events
-
-## Troubleshooting
-
-### Cannot Connect to VDA
-
-**Error**: "Cannot connect to VDA-SERVER01 - Skipping"
-
-**Solutions**:
-- Verify network connectivity: `Test-Connection VDA-SERVER01`
-- Check WMI access: `Get-WmiObject Win32_OperatingSystem -ComputerName VDA-SERVER01`
-- Ensure Windows Remote Management is enabled
-- Verify firewall allows remote event log access (TCP 135, dynamic RPC ports)
-
-### No Events Found
-
-**Possible Reasons**:
-- Issue hasn't occurred in the scanned time period
-- Event logs have been cleared or rotated
-- Insufficient permissions to read event logs
-- Citrix logging not configured properly
-
-**Recommendations**:
-- Increase `-DaysBack` parameter
-- Check event log retention settings
-- Verify account has Event Log Readers permissions
-- Enable Citrix diagnostic logging if needed
-
-### Permission Denied
-
-**Error**: Access denied when querying event logs
-
-**Solutions**:
-- Run PowerShell as Administrator
-- Ensure account is member of "Event Log Readers" group on VDAs
-- Add account to local Administrators group on VDAs (if appropriate)
-
-## Advanced Configuration
-
-### Enable Process Auditing (Optional)
-
-For more detailed tracking, enable process creation auditing on VDAs:
-
-```powershell
-# Run on each VDA server
-auditpol /set /subcategory:"Process Creation" /success:enable /failure:enable
-```
-
-This provides Event ID 4688 when explorer.exe starts, giving more precise tracking.
-
-### Scheduled Monitoring
-
-Create a scheduled task to run weekly:
-
-```powershell
-$Action = New-ScheduledTaskAction -Execute "PowerShell.exe" `
-    -Argument "-File C:\Scripts\Get-CitrixBlackScreenReport.ps1 -ComputerName (Get-Content C:\Scripts\vda-servers.txt) -ExportPath C:\Reports\BlackScreen_$(Get-Date -Format 'yyyy-MM-dd').csv"
-
-$Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 6am
-
-Register-ScheduledTask -TaskName "Citrix Black Screen Report" -Action $Action -Trigger $Trigger
-```
-
-## Integration with Monitoring Tools
-
-### Email Report
-
-```powershell
-$Report = Get-Content vda-servers.txt | .\Get-CitrixBlackScreenReport.ps1 -ExportPath "C:\Reports\BlackScreen.csv"
-
-if ($Report) {
-    Send-MailMessage -To "citrix-admins@company.com" `
-        -From "monitoring@company.com" `
-        -Subject "Citrix Black Screen Report - $(Get-Date -Format 'yyyy-MM-dd')" `
-        -Body "Found $($Report.Count) incidents. See attachment." `
-        -Attachments "C:\Reports\BlackScreen.csv" `
-        -SmtpServer "smtp.company.com"
-}
-```
-
-### Import to SIEM/Splunk
-
-Export as JSON for import to SIEM systems:
-
-```powershell
-$Report = Get-Content vda-servers.txt | .\Get-CitrixBlackScreenReport.ps1
-$Report | ConvertTo-Json | Out-File "C:\Reports\BlackScreen.json"
-```
-
-## Version History
-
-- **1.0** (2025-12-20): Initial release
-
-## Support
-
-For issues or enhancements, please contact your Citrix support team.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
 
 ## License
 
-Internal use only.
+MIT License
+
+## Support
+
+For issues and questions, please open an issue on GitHub.
+
+---
+
+Start conserving water and climb the leaderboard today!
