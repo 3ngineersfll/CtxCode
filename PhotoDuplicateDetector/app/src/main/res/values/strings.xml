@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Photo Duplicate Detector</string>
+    <string name="scan_photos">Scan Photos</string>
+    <string name="delete_selected">Delete Selected</string>
+    <string name="analyzing_photos">Analyzing Photos…</string>
+    <string name="loading_photos">Loading Photos…</string>
+    <string name="grouping_photos">Grouping Similar Photos…</string>
+    <string name="analysis_complete">Analysis Complete</string>
+    <string name="no_duplicates_found">No duplicate photos found</string>
+    <string name="duplicates_found">%d groups of duplicates found</string>
+    <string name="photos_selected">%d photos selected</string>
+    <string name="potential_savings">Potential savings: %s</string>
+    <string name="quality_score">Quality: %.0f%%</string>
+    <string name="photo_group_title">Group %d (%d photos)</string>
+    <string name="best_photo">Best Photo</string>
+    <string name="can_delete">Can Delete</string>
+    <string name="closed_eyes">Closed eyes</string>
+    <string name="no_smile">No smile</string>
+    <string name="blurry">Blurry</string>
+    <string name="no_faces">No faces detected</string>
+    <string name="delete_confirmation_title">Delete Photos?</string>
+    <string name="delete_confirmation_message">Are you sure you want to delete %d photos? This cannot be undone.</string>
+    <string name="delete_success">Successfully deleted %d photos</string>
+    <string name="delete_partial">Deleted %d of %d photos</string>
+    <string name="delete_failed">Failed to delete photos</string>
+    <string name="permission_required">Storage permission required</string>
+    <string name="permission_denied">Permission denied. Cannot access photos.</string>
+    <string name="grant_permission">Grant Permission</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="select_all_bad">Select All Bad Photos</string>
+    <string name="expand">Expand</string>
+    <string name="collapse">Collapse</string>
+    <string name="error_loading">Error loading photos</string>
+</resources>
