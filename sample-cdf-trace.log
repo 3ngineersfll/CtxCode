@@ -1,0 +1,101 @@
+2026-01-03 08:15:23.451 [INFO] Citrix VDA Session Manager - Starting session initialization for user DOMAIN\jsmith
+2026-01-03 08:15:23.567 [INFO] ICA Stack - Loading HDX configuration
+2026-01-03 08:15:24.123 [INFO] CGP Protocol - Establishing connection from 192.168.1.105
+2026-01-03 08:15:24.234 [INFO] Session Manager - Allocating session ID: 12345
+2026-01-03 08:15:24.456 [INFO] Profile Service - Loading user profile from \\fileserver\profiles\jsmith
+2026-01-03 08:15:25.789 [ERROR] Profile Service - Profile failed to load: Access denied to \\fileserver\profiles\jsmith\NTUSER.DAT
+2026-01-03 08:15:25.890 [WARNING] Profile Service - Attempting to load with temporary profile
+2026-01-03 08:15:26.234 [INFO] Authentication - Initiating Kerberos authentication for DOMAIN\jsmith
+2026-01-03 08:15:26.345 [ERROR] Authentication - Kerberos authentication failed: KDC unreachable
+2026-01-03 08:15:26.456 [INFO] Authentication - Falling back to NTLM
+2026-01-03 08:15:27.123 [INFO] Authentication - NTLM authentication successful
+2026-01-03 08:15:27.567 [INFO] License Service - Requesting license from server lic01.domain.com
+2026-01-03 08:15:28.234 [ERROR] License Service - License not available: Concurrent license limit reached
+2026-01-03 08:15:28.345 [WARNING] License Service - License grace period active (14 days remaining)
+2026-01-03 08:15:28.456 [INFO] Session - Session started successfully for user DOMAIN\jsmith
+2026-01-03 08:15:29.123 [INFO] HDX - Initializing virtual channels
+2026-01-03 08:15:29.234 [INFO] HDX - Virtual channel 'Clipboard' initialized
+2026-01-03 08:15:29.345 [INFO] HDX - Virtual channel 'Drive' initialized
+2026-01-03 08:15:29.456 [ERROR] HDX - Virtual channel 'USB' failed to initialize: USB redirection service not responding
+2026-01-03 08:15:30.123 [INFO] Graphics - Initializing Thinwire display
+2026-01-03 08:15:30.234 [INFO] Graphics - GPU allocation: NVIDIA Tesla M10 (2GB)
+2026-01-03 08:15:30.567 [INFO] Desktop - Starting Windows Explorer
+2026-01-03 08:15:31.789 [ERROR] Application Error - explorer.exe crashed with exception 0xC0000005
+2026-01-03 08:15:32.123 [WARNING] Desktop - Attempting to restart explorer.exe
+2026-01-03 08:15:32.456 [INFO] Desktop - explorer.exe restarted successfully
+2026-01-03 08:15:33.234 [INFO] Printer - Initializing printer redirection
+2026-01-03 08:15:33.567 [ERROR] Printer - Printer redirection failed: Universal Print Driver not installed
+2026-01-03 08:15:34.123 [INFO] Session - User DOMAIN\jsmith session fully initialized
+
+2026-01-03 09:23:45.123 [INFO] Session Manager - User DOMAIN\mjones reconnecting to session 12346
+2026-01-03 09:23:45.234 [INFO] CGP Protocol - Connection from 10.50.25.89
+2026-01-03 09:23:45.456 [INFO] EDT Transport - Initializing HDX Adaptive Transport
+2026-01-03 09:23:45.789 [WARNING] EDT Transport - High latency detected: 245ms
+2026-01-03 09:23:46.123 [ERROR] Network - EDT connection broken: Packet loss exceeds threshold (15%)
+2026-01-03 09:23:46.234 [INFO] Network - Falling back to TCP transport
+2026-01-03 09:23:46.567 [INFO] Session - Reconnection successful
+2026-01-03 09:23:47.123 [INFO] Graphics - Resuming display output
+2026-01-03 09:23:47.456 [WARNING] Performance - Frame rate dropped to 15 FPS due to bandwidth constraints
+
+2026-01-03 10:45:12.123 [INFO] Broker Agent - Attempting registration with Delivery Controller ddc01.domain.com
+2026-01-03 10:45:12.567 [ERROR] Broker Agent - Registration failed: Delivery Controller unreachable (TCP 80)
+2026-01-03 10:45:13.123 [WARNING] Broker Agent - Retrying registration in 30 seconds
+2026-01-03 10:45:43.234 [ERROR] Broker Agent - Machine registration failed after 3 attempts
+2026-01-03 10:45:43.456 [CRITICAL] Broker Agent - VDA not registered - users cannot connect
+
+2026-01-03 11:15:34.123 [INFO] Session - User DOMAIN\bwilson starting application: Microsoft Word
+2026-01-03 11:15:34.567 [INFO] Application - Launching WINWORD.EXE
+2026-01-03 11:15:35.234 [ERROR] Application - Launch failed: Insufficient memory available
+2026-01-03 11:15:35.456 [WARNING] Performance - Memory exhausted: 98% utilization (15.8GB / 16GB)
+2026-01-03 11:15:35.789 [WARNING] Performance - CPU high utilization: 95% across all cores
+
+2026-01-03 12:30:45.123 [INFO] Session Manager - Processing logoff for DOMAIN\asmith session 12347
+2026-01-03 12:30:45.567 [INFO] Session - Disconnecting ICA session
+2026-01-03 12:30:46.123 [ERROR] Network - CGP connection lost: TCP connection reset by peer
+2026-01-03 12:30:46.234 [INFO] Session - User disconnected
+2026-01-03 12:30:46.567 [INFO] Profile Service - Saving user profile
+2026-01-03 12:30:47.123 [INFO] Session - Logoff complete
+
+2026-01-03 13:45:23.123 [INFO] SSL/TLS - Client attempting secure connection
+2026-01-03 13:45:23.456 [ERROR] SSL/TLS - SSL handshake failed: Certificate expired (expired: 2025-12-31)
+2026-01-03 13:45:23.789 [ERROR] Connection - Client connection rejected due to SSL error
+
+2026-01-03 14:20:11.123 [INFO] Citrix Desktop Service - Service startup initiated
+2026-01-03 14:20:11.456 [ERROR] Citrix Desktop Service - Service terminated unexpectedly: Unhandled exception in worker thread
+2026-01-03 14:20:11.789 [CRITICAL] Service - BrokerAgent service crashed with exit code -1073741819
+2026-01-03 14:20:12.123 [INFO] Service Control Manager - Attempting automatic restart of Citrix Desktop Service
+
+2026-01-03 15:10:34.123 [INFO] Session - User DOMAIN\rjones starting session
+2026-01-03 15:10:34.567 [INFO] CGP - Connection attempt from 172.16.8.95
+2026-01-03 15:10:35.123 [ERROR] CGP - CGP Error: failed to connect - Unable to establish reliable connection
+2026-01-03 15:10:35.456 [ERROR] ICA - ICA Connection attempt failed: Protocol negotiation timeout
+2026-01-03 15:10:35.789 [ERROR] Session - Connection failed: Session failed to start within timeout period
+
+2026-01-03 16:25:45.123 [INFO] HDX - Processing multimedia redirection request
+2026-01-03 16:25:45.567 [INFO] HDX - Initializing Windows Media Player redirection
+2026-01-03 16:25:46.123 [ERROR] HDX channel error - Media redirection virtual channel disconnected unexpectedly
+2026-01-03 16:25:46.456 [WARNING] HDX - Thinwire failed to encode frame: GPU driver error
+2026-01-03 16:25:46.789 [ERROR] Graphics driver error - NVIDIA display driver stopped responding
+
+2026-01-03 17:40:12.123 [INFO] Authentication - Processing smart card authentication for DOMAIN\cadmin
+2026-01-03 17:40:12.567 [ERROR] Authentication - Credential invalid: Smart card certificate revoked
+2026-01-03 17:40:12.890 [ERROR] Session - Logon failed: Access denied - authentication failure
+2026-01-03 17:40:13.123 [INFO] Session - Connection terminated
+
+2026-01-03 18:15:34.567 [INFO] FSLogix - Loading profile container for DOMAIN\tlee
+2026-01-03 18:15:35.123 [ERROR] FSLogix - FSLogix error: Unable to attach VHD - file is locked by another process
+2026-01-03 18:15:35.456 [ERROR] Profile - Roaming profile failed: Container access denied
+2026-01-03 18:15:35.789 [WARNING] Profile - User profile is corrupt, using default profile
+
+2026-01-03 19:30:45.123 [INFO] Session - Active session health check
+2026-01-03 19:30:45.567 [WARNING] Performance - Disk slow response time: 850ms average latency
+2026-01-03 19:30:46.123 [WARNING] Network - High latency detected: 1200ms RTT
+2026-01-03 19:30:46.456 [INFO] Monitoring - Session quality: Poor (Network score: 3/10)
+
+2026-01-03 20:05:12.123 [INFO] Printing - Auto-creating client printer: HP LaserJet 4050
+2026-01-03 20:05:12.567 [ERROR] Printing - Auto-created printer failed: Printer driver HP Universal Print Driver v7.0 not found
+2026-01-03 20:05:12.890 [ERROR] Spooler - Print spooler error: Driver installation failed with error 0x80070002
+
+2026-01-03 21:20:34.123 [INFO] System - Citrix VDA health monitoring active
+2026-01-03 21:20:34.567 [INFO] Monitoring - All core services running normally
+2026-01-03 21:20:35.123 [INFO] Status - VDA registered, 12 active sessions, system healthy

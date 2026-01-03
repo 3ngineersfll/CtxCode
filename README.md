@@ -1,4 +1,222 @@
-# Citrix Black Screen Historical Impact Report
+# Citrix Diagnostic Toolkit
+
+PowerShell scripts for analyzing and diagnosing Citrix Virtual Apps and Desktops issues.
+
+## Tools Included
+
+1. **Parse-CitrixCDFTrace.ps1** - Parse CDF trace files and identify root causes
+2. **Get-CitrixBlackScreenReport.ps1** - Historical analysis of black screen incidents
+3. **Watch-CitrixBlackScreen.ps1** - Real-time monitoring for black screen events
+4. **Get-VDAListFromDeliveryController.ps1** - Retrieve VDA server lists from Delivery Controllers
+
+---
+
+# Parse-CitrixCDFTrace.ps1
+
+## Overview
+
+Comprehensive parser for Citrix CDF (Common Diagnostic Format) trace files that automatically identifies root causes of common Citrix issues including session failures, authentication problems, HDX issues, graphics problems, and service crashes.
+
+## Features
+
+- **Automatic Issue Detection**: Identifies 12+ categories of common Citrix issues
+- **Root Cause Analysis**: Provides actionable root cause explanations for each issue type
+- **Multiple Export Formats**: Console, CSV, HTML, and JSON output
+- **Timeline Analysis**: Optional event timeline reconstruction
+- **Severity Filtering**: Filter by Critical, Error, Warning, or Info levels
+- **Batch Processing**: Analyze multiple trace files or entire directories
+
+## Detected Issue Categories
+
+| Category | Issue Types | Severity |
+|----------|-------------|----------|
+| Session | Connection failures, session start failures | Critical |
+| Authentication | Kerberos/NTLM failures, credential issues | Critical |
+| HDX | Virtual channel failures, USB redirection issues | Error |
+| Graphics | Black screen, explorer.exe crashes, GPU errors | Critical |
+| Network | Disconnections, EDT failures, high latency | Error |
+| Service | Service crashes, unexpected terminations | Critical |
+| Licensing | License unavailable, checkout failures | Critical |
+| Profile | Profile load failures, FSLogix errors | Error |
+| Registration | VDA registration failures, broker connectivity | Critical |
+| Performance | High CPU/memory, latency, frame rate drops | Warning |
+| Printing | Printer redirection failures, driver issues | Warning |
+| Security | SSL/TLS errors, certificate problems | Error |
+
+## Quick Start
+
+### Basic Analysis (Console Output)
+
+```powershell
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\session.log"
+```
+
+### Export to HTML Report
+
+```powershell
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\" -ExportFormat HTML -OutputPath "C:\Reports\analysis.html"
+```
+
+### Filter Critical Issues Only
+
+```powershell
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\vda.log" -SeverityFilter Critical
+```
+
+### Include Timeline and Export JSON
+
+```powershell
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\" -ExportFormat JSON -IncludeTimeline -OutputPath "analysis.json"
+```
+
+## Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `TracePath` | String | Yes | - | Path to CDF trace file or directory |
+| `OutputPath` | String | No | Auto-generated | Path to save analysis report |
+| `ExportFormat` | String | No | Console | Output format: Console, CSV, HTML, JSON |
+| `SeverityFilter` | String | No | All | Filter by: Critical, Error, Warning, Info, All |
+| `TopIssues` | Int | No | 10 | Number of top issues to display in summary |
+| `IncludeTimeline` | Switch | No | False | Include event timeline in report |
+
+## Sample Output
+
+### Console Output
+
+```
+================================================================================
+  CITRIX CDF TRACE ANALYSIS REPORT
+================================================================================
+
+SUMMARY STATISTICS:
+  Total Lines Analyzed: 15,432
+  Total Issues Found: 47
+  Critical: 12
+  Errors: 23
+  Warnings: 12
+  Info: 0
+
+ISSUES BY CATEGORY:
+  Session: 8
+  Authentication: 5
+  Graphics: 4
+  Network: 12
+  HDX: 7
+  Licensing: 3
+  Profile: 6
+  Service: 2
+
+TOP 10 ROOT CAUSES:
+
+  1. [Critical] Session - Count: 8
+     Root Cause: Session connection failure - Check network connectivity,
+                 firewall rules, and VDA registration
+     Sample occurrences:
+       - session.log:1245
+         Connection failed: CGP Error
+       - session.log:3456
+         ICA Connection attempt failed
+
+  2. [Error] Network - Count: 12
+     Root Cause: Network disconnection - Check network stability, MTU settings,
+                 QoS policies, and EDT/HDX Adaptive Transport
+     Sample occurrences:
+       - vda.log:892
+         EDT connection broken: Packet loss exceeds threshold
+       ...
+```
+
+### HTML Report
+
+The HTML export creates a professional, styled report with:
+- Summary statistics dashboard
+- Category breakdown table
+- Detailed issue listing with color-coded severity
+- Timestamps and file references
+- Responsive design for easy viewing
+
+### CSV Export Columns
+
+- Timestamp
+- Severity
+- Category
+- IssueType
+- RootCause
+- FileName
+- LineNumber
+- MatchedText
+
+## Common Use Cases
+
+### Troubleshooting Session Launch Failures
+
+```powershell
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\session_failure.log" -SeverityFilter Critical
+```
+
+Look for Session, Authentication, and Registration categories.
+
+### Analyzing Black Screen Issues
+
+```powershell
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\blackscreen.log" |
+    Where-Object { $_.Category -eq 'Graphics' }
+```
+
+### Performance Investigation
+
+```powershell
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\slow_performance.log" -SeverityFilter Warning -IncludeTimeline
+```
+
+Check Performance and Network categories for latency, bandwidth, or resource issues.
+
+### Batch Analysis of Multiple Traces
+
+```powershell
+Get-ChildItem "C:\Traces\*.log" | ForEach-Object {
+    .\Parse-CitrixCDFTrace.ps1 -TracePath $_.FullName -ExportFormat CSV -OutputPath "C:\Reports\$($_.BaseName)_analysis.csv"
+}
+```
+
+## Integration Examples
+
+### Email Critical Issues
+
+```powershell
+$analysis = .\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\" -ExportFormat JSON
+$critical = ($analysis | ConvertFrom-Json).Issues | Where-Object { $_.Severity -eq 'Critical' }
+
+if ($critical.Count -gt 0) {
+    Send-MailMessage -To "citrix-admins@company.com" `
+        -Subject "Critical Citrix Issues Detected - $($critical.Count) found" `
+        -Body "Critical issues detected in traces. See attached report." `
+        -SmtpServer "smtp.company.com"
+}
+```
+
+### Splunk/SIEM Integration
+
+```powershell
+# Export as JSON for log aggregation
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\" -ExportFormat JSON -OutputPath "C:\Logs\citrix_analysis.json"
+
+# Parse and send to Splunk HEC
+$results = Get-Content "C:\Logs\citrix_analysis.json" | ConvertFrom-Json
+$results.Issues | ForEach-Object {
+    Invoke-RestMethod -Uri "https://splunk:8088/services/collector" `
+        -Method POST `
+        -Headers @{Authorization="Splunk <token>"} `
+        -Body ($_ | ConvertTo-Json)
+}
+```
+
+---
+
+# Get-CitrixBlackScreenReport.ps1
+
+## Overview
 
 PowerShell script to identify and report on users historically impacted by Citrix black screen issues requiring explorer.exe restart.
 
