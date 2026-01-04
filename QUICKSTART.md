@@ -1,8 +1,83 @@
 # Quick Start Guide
 
-Get up and running with the Citrix Black Screen reporting tool in 5 minutes.
+Get up and running with the Citrix Diagnostic Toolkit in 5 minutes.
 
-## Step 1: Prepare Your VDA Server List
+---
+
+## Tool 1: Parse CDF Traces (Root Cause Analysis)
+
+### Step 1: Collect CDF Trace
+
+Collect a CDF trace using Citrix CDF Control or from existing diagnostics:
+
+```powershell
+# Using CDFControl to collect live trace
+CDFControl.exe /start /maxsize:1024 /outputpath:"C:\CDF\"
+# ... reproduce the issue ...
+CDFControl.exe /stop
+
+# Or locate existing traces in common locations:
+# - C:\ProgramData\Citrix\Diagnostics\
+# - C:\Users\<user>\AppData\Local\Temp\
+# - Output from Citrix Scout
+```
+
+**Note**: The script supports both text logs (.txt, .log) and binary ETL files (.etl). ETL files are automatically converted.
+
+### Step 2: Run the Parser
+
+```powershell
+# Analyze a single trace file (text or ETL)
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\session.log"
+
+# Analyze an ETL file (auto-converts to text)
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\CDF\trace.etl"
+
+# Analyze all traces in a directory (mixed formats)
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\"
+
+# Export to HTML report and keep converted ETL files
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\CDF\" -ExportFormat HTML -KeepConvertedFiles
+```
+
+### Step 3: Review Results
+
+The parser will show:
+- Total issues found by severity (Critical, Error, Warning)
+- Issues grouped by category (Session, HDX, Network, etc.)
+- Top root causes with actionable remediation steps
+- Sample occurrences with file locations
+
+Example output:
+```
+SUMMARY STATISTICS:
+  Total Issues Found: 23
+  Critical: 5
+  Errors: 12
+  Warnings: 6
+
+TOP ROOT CAUSES:
+  1. [Critical] Session - Count: 5
+     Root Cause: Session connection failure - Check network connectivity,
+                 firewall rules, and VDA registration
+
+  2. [Error] Network - Count: 8
+     Root Cause: Network disconnection - Check network stability, MTU settings
+```
+
+### Step 4: Take Action
+
+Use the root cause information to:
+- Fix configuration issues
+- Update drivers or software
+- Adjust policies
+- Contact Citrix support with specific error details
+
+---
+
+## Tool 2: Black Screen Historical Analysis
+
+### Step 1: Prepare Your VDA Server List
 
 Create a text file with your VDA server names (one per line):
 
