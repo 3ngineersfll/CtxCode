@@ -11,23 +11,33 @@ Get up and running with the Citrix Diagnostic Toolkit in 5 minutes.
 Collect a CDF trace using Citrix CDF Control or from existing diagnostics:
 
 ```powershell
-# If you have a trace file already, skip to Step 2
-# Common locations:
+# Using CDFControl to collect live trace
+CDFControl.exe /start /maxsize:1024 /outputpath:"C:\CDF\"
+# ... reproduce the issue ...
+CDFControl.exe /stop
+
+# Or locate existing traces in common locations:
 # - C:\ProgramData\Citrix\Diagnostics\
 # - C:\Users\<user>\AppData\Local\Temp\
+# - Output from Citrix Scout
 ```
+
+**Note**: The script supports both text logs (.txt, .log) and binary ETL files (.etl). ETL files are automatically converted.
 
 ### Step 2: Run the Parser
 
 ```powershell
-# Analyze a single trace file
+# Analyze a single trace file (text or ETL)
 .\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\session.log"
 
-# Analyze all traces in a directory
+# Analyze an ETL file (auto-converts to text)
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\CDF\trace.etl"
+
+# Analyze all traces in a directory (mixed formats)
 .\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\"
 
-# Export to HTML report
-.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\session.log" -ExportFormat HTML -OutputPath "analysis.html"
+# Export to HTML report and keep converted ETL files
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\CDF\" -ExportFormat HTML -KeepConvertedFiles
 ```
 
 ### Step 3: Review Results

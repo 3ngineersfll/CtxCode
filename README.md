@@ -21,10 +21,12 @@ Comprehensive parser for Citrix CDF (Common Diagnostic Format) trace files that 
 
 - **Automatic Issue Detection**: Identifies 12+ categories of common Citrix issues
 - **Root Cause Analysis**: Provides actionable root cause explanations for each issue type
+- **ETL File Support**: Automatically converts binary ETL traces to text format for analysis
+- **Multiple Conversion Methods**: Uses tracerpt, Get-WinEvent, and netsh for ETL conversion
 - **Multiple Export Formats**: Console, CSV, HTML, and JSON output
 - **Timeline Analysis**: Optional event timeline reconstruction
 - **Severity Filtering**: Filter by Critical, Error, Warning, or Info levels
-- **Batch Processing**: Analyze multiple trace files or entire directories
+- **Batch Processing**: Analyze multiple trace files or entire directories (mixed .txt, .log, .etl)
 
 ## Detected Issue Categories
 
@@ -73,12 +75,79 @@ Comprehensive parser for Citrix CDF (Common Diagnostic Format) trace files that 
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `TracePath` | String | Yes | - | Path to CDF trace file or directory |
+| `TracePath` | String | Yes | - | Path to CDF trace file (.txt, .log, .etl) or directory |
 | `OutputPath` | String | No | Auto-generated | Path to save analysis report |
 | `ExportFormat` | String | No | Console | Output format: Console, CSV, HTML, JSON |
 | `SeverityFilter` | String | No | All | Filter by: Critical, Error, Warning, Info, All |
 | `TopIssues` | Int | No | 10 | Number of top issues to display in summary |
 | `IncludeTimeline` | Switch | No | False | Include event timeline in report |
+| `KeepConvertedFiles` | Switch | No | False | Preserve converted ETL files after analysis |
+| `ConvertedFilesPath` | String | No | Temp dir | Custom directory for converted ETL files |
+
+## ETL File Support
+
+The script now supports **binary ETL (Event Trace Log) files** - the native format produced by Citrix CDF Control and other ETW-based tracing tools.
+
+### How It Works
+
+When the script encounters an `.etl` file, it automatically:
+1. Detects the file is binary ETL format
+2. Attempts conversion using multiple methods (in order):
+   - **tracerpt.exe** - Windows built-in ETW viewer
+   - **Get-WinEvent** - PowerShell cmdlet for event logs
+   - **netsh trace convert** - For network-specific traces
+3. Converts to human-readable text format
+4. Analyzes the converted text for issues
+5. Optionally cleans up or preserves converted files
+
+### ETL Usage Examples
+
+```powershell
+# Analyze a single ETL file
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\CDF\session.etl"
+
+# Analyze ETL and keep the converted text file
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\CDF\session.etl" -KeepConvertedFiles
+
+# Process directory with mixed file types (.txt, .log, .etl)
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\CDF\" -ExportFormat HTML
+
+# Specify where to save converted ETL files
+.\Parse-CitrixCDFTrace.ps1 -TracePath "C:\CDF\" -ConvertedFilesPath "C:\ConvertedTraces" -KeepConvertedFiles
+```
+
+### Collecting CDF/ETL Traces
+
+To collect Citrix CDF traces in ETL format:
+
+```powershell
+# Using Citrix CDF Control (CDFControl.exe)
+# Start tracing
+CDFControl.exe /start /maxsize:1024 /outputpath:"C:\CDF\"
+
+# Reproduce the issue...
+
+# Stop tracing
+CDFControl.exe /stop
+```
+
+Alternatively, use the Citrix Scout diagnostics tool or the built-in CDF tracing in Citrix Studio.
+
+### Requirements for ETL Conversion
+
+- **Windows ETW subsystem** (built into Windows)
+- **Administrative privileges** (recommended for best results)
+- **Sufficient disk space** (converted files can be large)
+- **PowerShell 5.1+**
+
+### Troubleshooting ETL Conversion
+
+If ETL conversion fails:
+1. Ensure you're running PowerShell as Administrator
+2. Verify the ETL file is not corrupted (try opening with Windows Performance Analyzer)
+3. Use `-KeepConvertedFiles` to inspect partial conversions
+4. Manually convert using: `tracerpt.exe trace.etl -o output.txt -of CSV`
+5. For Citrix-specific traces, consider using Citrix CDF Analyzer tool
 
 ## Sample Output
 

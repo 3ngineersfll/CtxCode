@@ -36,6 +36,12 @@
 .PARAMETER IncludeTimeline
     Include a timeline view of events in the report.
 
+.PARAMETER KeepConvertedFiles
+    Keep the converted text files from ETL traces instead of deleting them after analysis.
+
+.PARAMETER ConvertedFilesPath
+    Specify a custom directory to store converted ETL files. If not specified, uses system temp directory.
+
 .EXAMPLE
     .\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\session.log"
 
@@ -51,10 +57,31 @@
 
     Analyzes traces showing only critical issues with top 5 problems.
 
+.EXAMPLE
+    .\Parse-CitrixCDFTrace.ps1 -TracePath "C:\Traces\session.etl" -KeepConvertedFiles
+
+    Analyzes an ETL trace file, automatically converts it to text, and keeps the converted file.
+
+.EXAMPLE
+    .\Parse-CitrixCDFTrace.ps1 -TracePath "C:\CDF\" -ConvertedFilesPath "C:\ConvertedTraces" -KeepConvertedFiles
+
+    Processes all traces in a directory, converts ETL files to a specific location, and preserves them.
+
 .NOTES
     Author: Citrix Diagnostics Team
-    Version: 1.0
+    Version: 2.0
     Requires: PowerShell 5.1 or later
+
+    ETL Conversion Methods:
+    The script attempts multiple methods to convert ETL files:
+    1. tracerpt.exe (Windows built-in tool)
+    2. Get-WinEvent (PowerShell cmdlet)
+    3. netsh trace convert (for network traces)
+
+    For best results with Citrix CDF traces, ensure you have:
+    - Administrative privileges
+    - Windows Event Log service running
+    - Sufficient disk space for converted files
 #>
 
 [CmdletBinding()]
@@ -78,7 +105,13 @@ param(
     [int]$TopIssues = 10,
 
     [Parameter(Mandatory=$false)]
-    [switch]$IncludeTimeline
+    [switch]$IncludeTimeline,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$KeepConvertedFiles,
+
+    [Parameter(Mandatory=$false)]
+    [string]$ConvertedFilesPath
 )
 
 # Issue detection patterns and signatures
@@ -249,6 +282,7 @@ $IssuePatterns = @{
 # Global variables for analysis
 $script:Issues = @()
 $script:TimelineEvents = @()
+$script:ConvertedFiles = @()
 $script:Statistics = @{
     TotalLines = 0
     TotalIssues = 0
@@ -272,6 +306,105 @@ function Write-Log {
 
     Write-Host "[$timestamp] " -NoNewline -ForegroundColor Gray
     Write-Host $Message -ForegroundColor $color
+}
+
+function Test-IsETLFile {
+    param([string]$FilePath)
+
+    return $FilePath -match '\.etl$'
+}
+
+function Convert-ETLToText {
+    param(
+        [string]$ETLPath,
+        [string]$OutputDirectory
+    )
+
+    $etlFile = Get-Item $ETLPath
+    $outputFile = Join-Path $OutputDirectory "$($etlFile.BaseName)_converted.txt"
+
+    Write-Log "Converting ETL file: $($etlFile.Name)" -Level 'Info'
+
+    try {
+        # Method 1: Try using tracerpt (built-in Windows tool)
+        $tracerptArgs = @(
+            "`"$ETLPath`"",
+            "-o `"$outputFile`"",
+            "-of CSV",
+            "-y"
+        )
+
+        $processInfo = Start-Process -FilePath "tracerpt.exe" `
+            -ArgumentList $tracerptArgs `
+            -Wait -PassThru -NoNewWindow `
+            -RedirectStandardError "$OutputDirectory\tracerpt_error.log" `
+            -RedirectStandardOutput "$OutputDirectory\tracerpt_output.log"
+
+        if ($processInfo.ExitCode -eq 0 -and (Test-Path $outputFile)) {
+            Write-Log "Successfully converted ETL file using tracerpt" -Level 'Success'
+            $script:ConvertedFiles += $outputFile
+            return $outputFile
+        }
+        else {
+            Write-Log "tracerpt conversion failed, trying Get-WinEvent method..." -Level 'Warning'
+        }
+    }
+    catch {
+        Write-Log "tracerpt method failed: $_" -Level 'Warning'
+    }
+
+    # Method 2: Try using Get-WinEvent (PowerShell cmdlet)
+    try {
+        Write-Log "Attempting conversion using Get-WinEvent..." -Level 'Info'
+
+        $events = Get-WinEvent -Path $ETLPath -Oldest -ErrorAction Stop
+
+        if ($events.Count -gt 0) {
+            $textOutput = New-Object System.Text.StringBuilder
+
+            foreach ($event in $events) {
+                $line = "{0:yyyy-MM-dd HH:mm:ss.fff} [{1}] {2} - {3}" -f `
+                    $event.TimeCreated, `
+                    $event.LevelDisplayName, `
+                    $event.ProviderName, `
+                    $event.Message
+
+                [void]$textOutput.AppendLine($line)
+            }
+
+            $textOutput.ToString() | Out-File -FilePath $outputFile -Encoding UTF8
+            Write-Log "Successfully converted ETL file using Get-WinEvent ($($events.Count) events)" -Level 'Success'
+            $script:ConvertedFiles += $outputFile
+            return $outputFile
+        }
+    }
+    catch {
+        Write-Log "Get-WinEvent method failed: $_" -Level 'Warning'
+    }
+
+    # Method 3: Try netsh trace convert (for network traces)
+    try {
+        Write-Log "Attempting conversion using netsh trace convert..." -Level 'Info'
+
+        $netshOutput = Join-Path $OutputDirectory "$($etlFile.BaseName)_netsh.txt"
+        $result = netsh trace convert input="$ETLPath" output="$netshOutput" overwrite=yes 2>&1
+
+        if (Test-Path $netshOutput) {
+            Write-Log "Successfully converted ETL file using netsh" -Level 'Success'
+            $script:ConvertedFiles += $netshOutput
+            return $netshOutput
+        }
+    }
+    catch {
+        Write-Log "netsh method failed: $_" -Level 'Warning'
+    }
+
+    # If all methods fail
+    Write-Log "ERROR: Unable to convert ETL file $($etlFile.Name) using any available method" -Level 'Error'
+    Write-Log "The ETL file may be corrupt or use an unsupported format" -Level 'Error'
+    Write-Log "Consider using Citrix CDF Analyzer or Message Analyzer to convert manually" -Level 'Warning'
+
+    return $null
 }
 
 function Get-TraceFiles {
@@ -355,7 +488,7 @@ function Parse-TraceLine {
 }
 
 function Analyze-TraceFiles {
-    param([array]$Files)
+    param([array]$Files, [string]$TempDirectory)
 
     $totalFiles = $Files.Count
     $currentFile = 0
@@ -364,15 +497,36 @@ function Analyze-TraceFiles {
         $currentFile++
         Write-Log "Processing file $currentFile of $totalFiles: $($file.Name)" -Level 'Info'
 
+        $fileToProcess = $file.FullName
+        $fileNameForReporting = $file.Name
+
+        # Check if this is an ETL file that needs conversion
+        if (Test-IsETLFile -FilePath $file.FullName) {
+            Write-Log "Detected ETL file: $($file.Name)" -Level 'Info'
+
+            $convertedFile = Convert-ETLToText -ETLPath $file.FullName -OutputDirectory $TempDirectory
+
+            if ($convertedFile -and (Test-Path $convertedFile)) {
+                $fileToProcess = $convertedFile
+                $fileNameForReporting = "$($file.Name) (converted)"
+                Write-Log "Processing converted file..." -Level 'Info'
+            }
+            else {
+                Write-Log "Skipping ETL file $($file.Name) - conversion failed" -Level 'Warning'
+                continue
+            }
+        }
+
+        # Process the file (original or converted)
         try {
             $lineNumber = 0
-            Get-Content -Path $file.FullName -ErrorAction Stop | ForEach-Object {
+            Get-Content -Path $fileToProcess -ErrorAction Stop | ForEach-Object {
                 $lineNumber++
-                Parse-TraceLine -Line $_ -LineNumber $lineNumber -FileName $file.Name
+                Parse-TraceLine -Line $_ -LineNumber $lineNumber -FileName $fileNameForReporting
             }
         }
         catch {
-            Write-Log "Error processing file $($file.Name): $_" -Level 'Error'
+            Write-Log "Error processing file $fileNameForReporting: $_" -Level 'Error'
         }
     }
 }
@@ -608,6 +762,20 @@ try {
     Write-Log "Trace Path: $TracePath" -Level 'Info'
     Write-Log "Severity Filter: $SeverityFilter" -Level 'Info'
 
+    # Setup temporary directory for ETL conversions
+    if ($ConvertedFilesPath) {
+        $tempDir = $ConvertedFilesPath
+        if (-not (Test-Path $tempDir)) {
+            New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        }
+    }
+    else {
+        $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "CitrixCDFParser_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+    }
+
+    Write-Log "Temporary directory for conversions: $tempDir" -Level 'Info'
+
     # Get trace files
     $traceFiles = Get-TraceFiles -Path $TracePath
     Write-Log "Found $($traceFiles.Count) trace file(s) to analyze" -Level 'Info'
@@ -617,8 +785,14 @@ try {
         exit 1
     }
 
+    # Check if any ETL files are present
+    $etlFiles = $traceFiles | Where-Object { Test-IsETLFile -FilePath $_.FullName }
+    if ($etlFiles.Count -gt 0) {
+        Write-Log "Found $($etlFiles.Count) ETL file(s) that will be converted" -Level 'Info'
+    }
+
     # Analyze traces
-    Analyze-TraceFiles -Files $traceFiles
+    Analyze-TraceFiles -Files $traceFiles -TempDirectory $tempDir
 
     # Filter issues
     $filteredIssues = Get-FilteredIssues -AllIssues $script:Issues
@@ -654,6 +828,31 @@ try {
     }
 
     Write-Log "Analysis complete!" -Level 'Success'
+
+    # Cleanup converted files if not keeping them
+    if (-not $KeepConvertedFiles -and $script:ConvertedFiles.Count -gt 0) {
+        Write-Log "Cleaning up $($script:ConvertedFiles.Count) converted file(s)..." -Level 'Info'
+        foreach ($convertedFile in $script:ConvertedFiles) {
+            if (Test-Path $convertedFile) {
+                Remove-Item -Path $convertedFile -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        # Remove temp directory if it's empty and we created it
+        if (-not $ConvertedFilesPath) {
+            $remainingFiles = Get-ChildItem -Path $tempDir -File
+            if ($remainingFiles.Count -eq 0) {
+                Remove-Item -Path $tempDir -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    elseif ($KeepConvertedFiles -and $script:ConvertedFiles.Count -gt 0) {
+        Write-Log "Converted files saved to: $tempDir" -Level 'Success'
+        Write-Log "  Files:" -Level 'Info'
+        foreach ($convertedFile in $script:ConvertedFiles) {
+            Write-Log "    - $(Split-Path -Leaf $convertedFile)" -Level 'Info'
+        }
+    }
 }
 catch {
     Write-Log "Fatal error during analysis: $_" -Level 'Error'
