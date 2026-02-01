@@ -218,6 +218,8 @@ macOS users with Retina or external HiDPI displays frequently experience:
 - Incorrect resolution scaling after connecting external monitors
 - DPI mismatch when dragging sessions between displays
 - Sessions not matching native display resolution
+- Different DPI behavior when laptop lid is open vs. closed
+- Scaling breaks when moving between office, conference room, and home setups
 
 ## Prerequisites
 
@@ -266,6 +268,24 @@ macOS users with Retina or external HiDPI displays frequently experience:
 ./Fix-CitrixDpiMac.sh --json
 ```
 
+### Auto-Detect and Configure for Current Displays
+
+```bash
+./Fix-CitrixDpiMac.sh --auto
+```
+
+### Install Persistent Agent for Roaming Users (Recommended)
+
+```bash
+./Fix-CitrixDpiMac.sh --install-agent
+```
+
+### Remove the Agent
+
+```bash
+./Fix-CitrixDpiMac.sh --uninstall-agent
+```
+
 ### Reset to Defaults
 
 ```bash
@@ -279,6 +299,9 @@ macOS users with Retina or external HiDPI displays frequently experience:
 | `--diagnose` | Run diagnostics only (default) |
 | `--fix` | Apply recommended fixes interactively |
 | `--fix-all` | Apply all fixes without prompting |
+| `--auto` | Auto-detect display topology and configure DPI |
+| `--install-agent` | Install LaunchAgent for automatic display-change handling |
+| `--uninstall-agent` | Remove the display-change LaunchAgent |
 | `--reset` | Reset all Citrix DPI settings to defaults |
 | `--backup` | Backup current Citrix configuration |
 | `--restore` | Restore configuration from backup |
@@ -312,6 +335,60 @@ The tool also provides guidance on server-side Citrix policies that must be conf
 - **Legacy graphics mode** — Must be disabled
 - **Use video codec for compression** — Recommended for actively changing regions
 
+## Roaming / Hotdesking Support
+
+Users who move between locations throughout the day — office desk with dual monitors, conference room with laptop only, home office with a 4K display — need DPI settings that adapt automatically without manual intervention.
+
+### The Problem
+
+When macOS detects a display change (plugging in a monitor, closing the lid, docking), it reconfigures the display topology. Citrix Workspace picks up DPI from the primary display at that moment, which varies by topology:
+
+| Location | Displays | Lid | What CWA sees | Result |
+|----------|----------|-----|---------------|--------|
+| Office desk | 2 externals | Closed | External @ 1x | Correct |
+| Office desk | 2 externals | Open | Built-in Retina @ 2x | Blurry on externals |
+| Conf room | Laptop only | Open | Built-in Retina @ 2x | Correct |
+| Home | 1 external 4K | Closed | External @ 2x | Correct |
+| Home | 1 external 1080p | Open | Built-in Retina @ 2x | Blurry on external |
+
+### The Solution
+
+Install the display-change agent once:
+
+```bash
+./Fix-CitrixDpiMac.sh --install-agent
+```
+
+The agent:
+1. **Runs at login** to configure DPI for the initial display setup
+2. **Watches for display changes** (plug/unplug, lid open/close, dock/undock)
+3. **Classifies the topology** into one of three profiles:
+   - **Built-in only** — laptop screen only, auto-detect DPI (Retina native)
+   - **Externals only** — lid closed with external monitors, match external DPI
+   - **Built-in + externals** — mixed setup, lock DPI to match externals to avoid blurry scaling
+4. **Reconfigures CWA** with the optimal DPI settings for that profile
+5. **Clears rendering cache** so changes take effect on next session reconnect
+
+### How It Works
+
+The agent installs as a macOS LaunchAgent (`com.citrix.dpi-matching-agent`) that monitors `/Library/Preferences/com.apple.windowserver.plist` for changes. When a display reconfiguration is detected:
+
+1. It fingerprints the current display topology (count, types, DPI, lid state)
+2. Compares against the last known topology to avoid unnecessary reconfiguration
+3. If changed, applies the matching DPI profile and clears the CWA cache
+4. Logs all actions to `~/Library/Logs/CitrixDPI/dpi-agent.log`
+
+### Server-Side Requirements for Roaming
+
+For the best roaming experience, ask your Citrix admin to set these policies:
+
+- **DPI matching** = Enabled, match client DPI **on session start only** (not dynamically)
+- **Display memory limit** = 131072 KB or higher for HiDPI displays
+- **Legacy graphics mode** = Disabled
+- **VDA version** = 1912 LTSR CU3+ or 2103+ minimum
+
+Setting DPI matching to "session start only" prevents mid-session rescaling when the display topology changes, which produces more consistent results than dynamic rescaling.
+
 ## Troubleshooting
 
 ### Fixes Applied But Session Still Blurry
@@ -343,6 +420,7 @@ When using Retina + non-Retina displays simultaneously:
 
 - **1.0** (2025-12-20): Initial release — Black screen reporting tools
 - **1.1** (2025-12-20): Added macOS DPI matching diagnostic and fix tool
+- **1.2** (2025-12-20): Added roaming support — auto-detect topology, LaunchAgent for display changes
 
 ## Support
 

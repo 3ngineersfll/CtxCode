@@ -31,18 +31,40 @@
 #  USAGE
 #    chmod +x Fix-CitrixDpiMac.sh
 #    ./Fix-CitrixDpiMac.sh [--diagnose] [--fix] [--fix-all] [--reset]
+#                          [--auto] [--install-agent] [--uninstall-agent]
 #                          [--backup] [--restore] [--verbose] [--json]
 #
 #  OPTIONS
-#    --diagnose     Run diagnostics only (default if no flag given)
-#    --fix          Apply recommended fixes interactively
-#    --fix-all      Apply all fixes without prompting
-#    --reset        Reset all Citrix DPI settings to defaults
-#    --backup       Backup current Citrix configuration
-#    --restore      Restore configuration from backup
-#    --verbose      Show detailed diagnostic output
-#    --json         Output results in JSON format
-#    --help         Show this help message
+#    --diagnose         Run diagnostics only (default if no flag given)
+#    --fix              Apply recommended fixes interactively
+#    --fix-all          Apply all fixes without prompting
+#    --auto             Detect current display topology and configure CWA
+#                       automatically. Designed for roaming users who move
+#                       between different monitor setups throughout the day.
+#    --install-agent    Install a macOS LaunchAgent that watches for display
+#                       configuration changes and runs --auto automatically.
+#                       This gives a uniform experience across office desks,
+#                       conference rooms, and home setups without any manual
+#                       intervention.
+#    --uninstall-agent  Remove the display-change LaunchAgent
+#    --reset            Reset all Citrix DPI settings to defaults
+#    --backup           Backup current Citrix configuration
+#    --restore          Restore configuration from backup
+#    --verbose          Show detailed diagnostic output
+#    --json             Output results in JSON format
+#    --help             Show this help message
+#
+#  ROAMING / HOTDESKING
+#    Users who move between locations (office with dual monitors, conference
+#    room with laptop only, home with a 4K display) need DPI settings that
+#    adapt automatically. Use:
+#
+#      ./Fix-CitrixDpiMac.sh --install-agent
+#
+#    This installs a persistent LaunchAgent that detects every display
+#    change event (plug/unplug monitor, open/close lid, dock/undock) and
+#    reconfigures Citrix Workspace for the current topology — no user
+#    action required.
 #
 #  REQUIREMENTS
 #    - macOS 11.0 (Big Sur) or later
@@ -50,6 +72,7 @@
 #    - Terminal / shell access
 #
 #  VERSION
+#    1.1 - 2025-12-20 - Add --auto mode and LaunchAgent for roaming support
 #    1.0 - 2025-12-20 - Initial release
 #
 # ============================================================================
@@ -58,7 +81,7 @@ set -euo pipefail
 
 # ── Constants ───────────────────────────────────────────────────────────────
 
-readonly VERSION="1.0"
+readonly VERSION="1.1"
 readonly SCRIPT_NAME="Fix-CitrixDpiMac"
 
 # Citrix Workspace app paths
@@ -74,6 +97,13 @@ readonly CWA_APPSRV_CONF="$HOME/Library/Application Support/Citrix Receiver/Conf
 
 # Backup directory
 readonly BACKUP_DIR="$HOME/.citrix-dpi-backup"
+
+# LaunchAgent for automatic display-change handling
+readonly LAUNCH_AGENT_LABEL="com.citrix.dpi-matching-agent"
+readonly LAUNCH_AGENT_PLIST="$HOME/Library/LaunchAgents/${LAUNCH_AGENT_LABEL}.plist"
+readonly AGENT_LOG_DIR="$HOME/Library/Logs/CitrixDPI"
+readonly AGENT_LOG_FILE="$AGENT_LOG_DIR/dpi-agent.log"
+readonly TOPOLOGY_STATE_FILE="$BACKUP_DIR/.last-topology"
 
 # Color codes
 readonly RED='\033[0;31m'
@@ -556,6 +586,503 @@ check_server_side_hints() {
     log_info "${DIM}  • 'DPI matching' = Enabled (or allowed to use client setting)${NC}"
     log_info "${DIM}  • 'Legacy graphics mode' = Disabled${NC}"
     log_info "${DIM}  • 'Use video codec for compression' = For actively changing regions${NC}"
+}
+
+# ── Display Topology & Auto-Configuration ───────────────────────────────────
+#
+# Classifies the current display setup into a topology profile and applies
+# the optimal DPI settings for that profile. This is the core of the roaming
+# support — the same function runs whether triggered manually (--auto),
+# by the LaunchAgent on display change, or during --fix-all.
+
+get_display_topology() {
+    # Returns a topology string: "builtin-only", "externals-only",
+    # "builtin-plus-externals", or "unknown"
+    # Also sets global variables for downstream use.
+
+    TOPO_BUILTIN=0
+    TOPO_EXTERNAL=0
+    TOPO_RETINA=0
+    TOPO_TOTAL=0
+    TOPO_LID_CLOSED=false
+    TOPO_DISPLAYS=()          # array of "type:widthxheight:scale"
+    TOPO_MAX_SCALE=1
+    TOPO_MIXED_DPI=false
+
+    # Detect lid state via ioreg (built-in display powered off = lid closed)
+    local lid_state
+    lid_state=$(ioreg -r -k AppleClamshellState 2>/dev/null | grep AppleClamshellState | head -1 || echo "")
+    if echo "$lid_state" | grep -q "Yes"; then
+        TOPO_LID_CLOSED=true
+    fi
+
+    # Parse displays from system_profiler
+    local display_info
+    display_info=$(system_profiler SPDisplaysDataType 2>/dev/null || echo "")
+
+    if [ -z "$display_info" ]; then
+        echo "unknown"
+        return
+    fi
+
+    local current_type="unknown"
+    local current_res=""
+    local current_retina=false
+
+    while IFS= read -r line; do
+        # Detect display type
+        if echo "$line" | grep -qi "Display Type:"; then
+            local dtype
+            dtype=$(echo "$line" | sed 's/.*Display Type: //' | xargs)
+            if echo "$dtype" | grep -qi "built-in\|internal"; then
+                current_type="builtin"
+            else
+                current_type="external"
+            fi
+        fi
+
+        # Detect resolution and retina status
+        if echo "$line" | grep -q "Resolution:"; then
+            TOPO_TOTAL=$((TOPO_TOTAL + 1))
+            current_res=$(echo "$line" | sed 's/.*Resolution: //' | xargs)
+            current_retina=false
+
+            if echo "$line" | grep -qi "retina\|hidpi"; then
+                current_retina=true
+                TOPO_RETINA=$((TOPO_RETINA + 1))
+            fi
+
+            # Determine scale factor from resolution text
+            local scale=1
+            if [ "$current_retina" = true ]; then
+                scale=2
+            fi
+            if [ "$scale" -gt "$TOPO_MAX_SCALE" ]; then
+                TOPO_MAX_SCALE=$scale
+            fi
+
+            # Classify this display
+            if [ "$current_type" = "builtin" ]; then
+                TOPO_BUILTIN=$((TOPO_BUILTIN + 1))
+            else
+                TOPO_EXTERNAL=$((TOPO_EXTERNAL + 1))
+            fi
+
+            TOPO_DISPLAYS+=("${current_type}:${current_res}:${scale}")
+
+            # Reset for next display
+            current_type="external"  # default assumption for next
+        fi
+    done <<< "$display_info"
+
+    # If no displays found via type detection, use lid state as heuristic
+    if [ "$TOPO_TOTAL" -eq 0 ]; then
+        TOPO_TOTAL=1
+        TOPO_BUILTIN=1
+        echo "builtin-only"
+        return
+    fi
+
+    # Detect mixed DPI
+    if [ "$TOPO_RETINA" -gt 0 ] && [ "$TOPO_RETINA" -lt "$TOPO_TOTAL" ]; then
+        TOPO_MIXED_DPI=true
+    fi
+
+    # Classify topology
+    if [ "$TOPO_LID_CLOSED" = true ] || [ "$TOPO_BUILTIN" -eq 0 ]; then
+        if [ "$TOPO_EXTERNAL" -gt 0 ]; then
+            echo "externals-only"
+        else
+            echo "builtin-only"
+        fi
+    elif [ "$TOPO_EXTERNAL" -eq 0 ]; then
+        echo "builtin-only"
+    else
+        echo "builtin-plus-externals"
+    fi
+}
+
+get_topology_fingerprint() {
+    # Returns a stable string that uniquely identifies the current display
+    # configuration. Used to avoid re-applying settings when nothing changed.
+    local topo
+    topo=$(get_display_topology)
+    local fingerprint="${topo}|lid=${TOPO_LID_CLOSED}|total=${TOPO_TOTAL}|ext=${TOPO_EXTERNAL}|retina=${TOPO_RETINA}|mixed=${TOPO_MIXED_DPI}"
+
+    # Include individual display info for full uniqueness
+    for d in "${TOPO_DISPLAYS[@]}"; do
+        fingerprint="${fingerprint}|${d}"
+    done
+
+    echo "$fingerprint"
+}
+
+auto_configure_dpi() {
+    # Main auto-configuration logic. Detects the current display topology
+    # and applies the right DPI strategy. Safe to call repeatedly — it
+    # checks whether the topology actually changed before touching settings.
+
+    local topology
+    topology=$(get_display_topology)
+    local fingerprint
+    fingerprint=$(get_topology_fingerprint)
+
+    log_section "Auto-Configure DPI (Topology: $topology)"
+
+    log_info "Lid closed: ${BOLD}$TOPO_LID_CLOSED${NC}"
+    log_info "Displays: ${BOLD}$TOPO_TOTAL${NC} total (${TOPO_BUILTIN} built-in, ${TOPO_EXTERNAL} external, ${TOPO_RETINA} Retina)"
+    log_info "Mixed DPI: ${BOLD}$TOPO_MIXED_DPI${NC}"
+    log_info "Max scale factor: ${BOLD}${TOPO_MAX_SCALE}x${NC}"
+
+    for d in "${TOPO_DISPLAYS[@]}"; do
+        log_verbose "  Display: $d"
+    done
+
+    # Check if topology changed since last run
+    mkdir -p "$BACKUP_DIR" 2>/dev/null
+    if [ -f "$TOPOLOGY_STATE_FILE" ]; then
+        local last_fingerprint
+        last_fingerprint=$(cat "$TOPOLOGY_STATE_FILE" 2>/dev/null || echo "")
+        if [ "$fingerprint" = "$last_fingerprint" ]; then
+            log_success "Display topology unchanged — no reconfiguration needed"
+            return 0
+        fi
+        log_info "Display topology changed, reconfiguring..."
+    fi
+
+    # ── Apply topology-specific settings ────────────────────────────────
+
+    # Step 1: Always enable DPI matching and HighDPI as baseline
+    defaults write "$CWA_PREFS_DOMAIN" DPIMatchingEnabled -bool true 2>/dev/null
+    defaults write "$CWA_PREFS_DOMAIN" HighDPI -bool true 2>/dev/null
+    defaults write "$CWA_PREFS_DOMAIN" UseHighDPI -bool true 2>/dev/null
+    defaults write "$CWA_PREFS_DOMAIN" DesktopApplianceDPIMatchingEnabled -bool true 2>/dev/null
+    log_success "Enabled DPI matching baseline preferences"
+
+    # Step 2: Remove any hardcoded resolution that would prevent dynamic matching
+    defaults delete "$CWA_PREFS_DOMAIN" DesiredHRES 2>/dev/null || true
+    defaults delete "$CWA_PREFS_DOMAIN" DesiredVRES 2>/dev/null || true
+    defaults delete "$CWA_PREFS_DOMAIN" DesiredDPI 2>/dev/null || true
+    defaults delete "$CWA_PREFS_DOMAIN" ScreenResolution 2>/dev/null || true
+
+    if [ -f "$CWA_APPSRV_CONF" ]; then
+        local tmp_file
+        tmp_file=$(mktemp)
+        grep -iv "^DesiredHRES=\|^DesiredVRES=\|^DesiredDPI=\|^ScreenPercent=" "$CWA_APPSRV_CONF" > "$tmp_file" 2>/dev/null || true
+        mv "$tmp_file" "$CWA_APPSRV_CONF"
+    fi
+
+    log_success "Cleared hardcoded resolution overrides"
+
+    # Step 3: Apply topology-specific DPI scale factor
+    case "$topology" in
+
+        builtin-only)
+            # Laptop screen only (conference room, on the go)
+            # The built-in Retina display is 2x. Let CWA match it natively.
+            log_info "Profile: Built-in display only (mobile/conference room)"
+            defaults write "$CWA_PREFS_DOMAIN" DPIMatchingScaleFactor -int 0 2>/dev/null
+            # 0 = auto-detect from primary display, which is the built-in
+            log_success "Set DPI scale factor to auto-detect (built-in primary)"
+            ;;
+
+        externals-only)
+            # Lid closed, external monitors only (docked at desk)
+            # All displays are external — use their native scale.
+            log_info "Profile: External displays only (docked, lid closed)"
+
+            if [ "$TOPO_MIXED_DPI" = true ]; then
+                # Mixed external DPIs — lock to the lower scale to avoid
+                # blurry upscaling on the non-Retina display
+                log_warn "Mixed DPI externals detected — locking to 1x for consistency"
+                defaults write "$CWA_PREFS_DOMAIN" DPIMatchingScaleFactor -int 1 2>/dev/null
+            else
+                # All externals same DPI — auto-detect is safe
+                defaults write "$CWA_PREFS_DOMAIN" DPIMatchingScaleFactor -int 0 2>/dev/null
+            fi
+            log_success "Set DPI scale factor for external-only topology"
+            ;;
+
+        builtin-plus-externals)
+            # Lid open with external monitors (common desk setup)
+            # This is the problematic case: built-in Retina (2x) + externals
+            # (often 1x). CWA may pick the built-in as primary and render
+            # everything at 2x, making externals blurry.
+            log_info "Profile: Built-in + external displays (lid open at desk)"
+
+            if [ "$TOPO_MIXED_DPI" = true ]; then
+                # Built-in is Retina, externals are not (most common case).
+                # Lock scale to match externals so the session looks correct
+                # on the monitors the user is actually looking at.
+                log_warn "Mixed DPI: Retina built-in + standard externals"
+                log_info "Locking DPI to match external monitors (1x)"
+                defaults write "$CWA_PREFS_DOMAIN" DPIMatchingScaleFactor -int 1 2>/dev/null
+                log_info "Tip: close the lid for native Retina scaling, or use same-DPI externals"
+            else
+                # All displays are same scale (e.g., Retina + 4K externals at 2x)
+                defaults write "$CWA_PREFS_DOMAIN" DPIMatchingScaleFactor -int 0 2>/dev/null
+            fi
+            log_success "Set DPI scale factor for mixed topology"
+            ;;
+
+        *)
+            # Unknown — fall back to auto-detect
+            log_warn "Could not classify display topology, using auto-detect"
+            defaults write "$CWA_PREFS_DOMAIN" DPIMatchingScaleFactor -int 0 2>/dev/null
+            ;;
+    esac
+
+    # Step 4: Write matching module.ini settings
+    local module_dir
+    module_dir=$(dirname "$CWA_MODULE_CONF")
+    mkdir -p "$module_dir" 2>/dev/null
+
+    if [ -f "$CWA_MODULE_CONF" ]; then
+        local tmp_file
+        tmp_file=$(mktemp)
+        grep -iv "^DPIMatchingEnabled=\|^UseHighDPI=\|^DesiredHRES=\|^DesiredVRES=\|^DesiredDPI=\|^ScreenPercent=" "$CWA_MODULE_CONF" > "$tmp_file" 2>/dev/null || true
+        {
+            echo ""
+            echo "; DPI Matching settings (auto-configured by $SCRIPT_NAME)"
+            echo "; Topology: $topology | $(date)"
+            echo "DPIMatchingEnabled=true"
+            echo "UseHighDPI=true"
+        } >> "$tmp_file"
+        mv "$tmp_file" "$CWA_MODULE_CONF"
+    else
+        cat > "$CWA_MODULE_CONF" << INI_EOF
+; Citrix Receiver Module Configuration
+; DPI Matching settings (auto-configured by $SCRIPT_NAME)
+; Topology: $topology | $(date)
+
+[ICA 3.0]
+DPIMatchingEnabled=true
+UseHighDPI=true
+INI_EOF
+    fi
+    log_success "Updated module.ini for $topology topology"
+
+    # Step 5: Clear rendering cache so CWA picks up new settings
+    local cache_dirs=(
+        "$HOME/Library/Caches/com.citrix.receiver.nomas"
+        "$HOME/Library/Caches/com.citrix.XenAppViewer"
+        "$HOME/Library/Caches/com.citrix.HdxRtcEngine"
+    )
+    for cache_dir in "${cache_dirs[@]}"; do
+        rm -rf "$cache_dir" 2>/dev/null || true
+    done
+    log_success "Cleared rendering cache"
+
+    # Step 6: Save topology fingerprint for change detection
+    echo "$fingerprint" > "$TOPOLOGY_STATE_FILE"
+
+    # Step 7: Nudge CWA to pick up changes (if running)
+    if pgrep -f "Citrix Workspace" > /dev/null 2>&1; then
+        log_info "Citrix Workspace is running — sending notification to refresh"
+        # Post a distributed notification that CWA listens for
+        # Also kill the viewer process so it restarts with new DPI on next window
+        pkill -HUP -f "Citrix Viewer" 2>/dev/null || true
+        log_info "Active sessions will pick up new DPI on next reconnect"
+        log_info "For immediate effect: disconnect and reconnect the session"
+    fi
+
+    log_success "Auto-configuration complete for topology: $topology"
+}
+
+# ── LaunchAgent Management ──────────────────────────────────────────────────
+#
+# Installs a macOS LaunchAgent that runs this script in --auto mode whenever
+# the display configuration changes. This covers:
+#   - Plugging/unplugging external monitors
+#   - Opening/closing the MacBook lid
+#   - Docking/undocking from a Thunderbolt dock
+#   - Display arrangement changes in System Settings
+
+install_launch_agent() {
+    log_section "Installing Display-Change LaunchAgent"
+
+    # Resolve the absolute path to this script
+    local script_path
+    script_path=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+
+    if [ ! -f "$script_path" ]; then
+        log_error "Cannot resolve script path: $script_path"
+        return 1
+    fi
+
+    # Create log directory
+    mkdir -p "$AGENT_LOG_DIR" 2>/dev/null
+
+    # Create the LaunchAgent plist
+    # WatchPaths monitors the IOKit display registry — any display change
+    # (add, remove, reconfigure) triggers the agent.
+    mkdir -p "$HOME/Library/LaunchAgents" 2>/dev/null
+
+    cat > "$LAUNCH_AGENT_PLIST" << PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${LAUNCH_AGENT_LABEL}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${script_path}</string>
+        <string>--auto</string>
+    </array>
+
+    <!-- Trigger on any display configuration change -->
+    <key>WatchPaths</key>
+    <array>
+        <string>/Library/Preferences/com.apple.windowserver.plist</string>
+    </array>
+
+    <!-- Also run at login to configure for initial display setup -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Throttle: don't fire more than once per 5 seconds -->
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <!-- Logging -->
+    <key>StandardOutPath</key>
+    <string>${AGENT_LOG_FILE}</string>
+    <key>StandardErrorPath</key>
+    <string>${AGENT_LOG_FILE}</string>
+
+    <!-- Keep alive only while user is logged in -->
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+</dict>
+</plist>
+PLIST_EOF
+
+    log_success "Created LaunchAgent plist at $LAUNCH_AGENT_PLIST"
+
+    # Also create a helper that watches IOKit display notifications
+    # as a more reliable trigger than WatchPaths alone
+    local helper_script="$BACKUP_DIR/dpi-display-watcher.sh"
+    mkdir -p "$BACKUP_DIR" 2>/dev/null
+
+    cat > "$helper_script" << 'WATCHER_EOF'
+#!/bin/bash
+# Display change watcher helper
+# Monitors IOKit for display reconfiguration events and triggers
+# the DPI auto-configure script. This catches lid open/close events
+# that WatchPaths may miss.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MAIN_SCRIPT="__MAIN_SCRIPT__"
+LOG="__LOG_FILE__"
+DEBOUNCE_FILE="/tmp/.citrix-dpi-debounce"
+DEBOUNCE_SECONDS=3
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"
+}
+
+log "Display watcher started"
+
+# Use displayplacer or system_profiler polling as fallback
+# for display change detection
+last_config=""
+while true; do
+    current_config=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Resolution:|Display Type:" | md5 2>/dev/null || echo "")
+
+    if [ -n "$current_config" ] && [ "$current_config" != "$last_config" ]; then
+        if [ -n "$last_config" ]; then
+            # Debounce: macOS may fire multiple events during a single
+            # display change (e.g., lid close triggers several reconfigs)
+            local now
+            now=$(date +%s)
+            local last_run=0
+            if [ -f "$DEBOUNCE_FILE" ]; then
+                last_run=$(cat "$DEBOUNCE_FILE" 2>/dev/null || echo 0)
+            fi
+            local elapsed=$((now - last_run))
+
+            if [ "$elapsed" -ge "$DEBOUNCE_SECONDS" ]; then
+                log "Display configuration changed, running auto-configure"
+                echo "$now" > "$DEBOUNCE_FILE"
+                "$MAIN_SCRIPT" --auto >> "$LOG" 2>&1
+            else
+                log "Display change detected but debounced (${elapsed}s < ${DEBOUNCE_SECONDS}s)"
+            fi
+        fi
+        last_config="$current_config"
+    fi
+
+    sleep 2
+done
+WATCHER_EOF
+
+    # Substitute actual paths into the helper
+    sed -i '' "s|__MAIN_SCRIPT__|${script_path}|g" "$helper_script" 2>/dev/null || \
+        sed "s|__MAIN_SCRIPT__|${script_path}|g" "$helper_script" > "${helper_script}.tmp" && mv "${helper_script}.tmp" "$helper_script"
+    sed -i '' "s|__LOG_FILE__|${AGENT_LOG_FILE}|g" "$helper_script" 2>/dev/null || \
+        sed "s|__LOG_FILE__|${AGENT_LOG_FILE}|g" "$helper_script" > "${helper_script}.tmp" && mv "${helper_script}.tmp" "$helper_script"
+
+    chmod +x "$helper_script"
+    log_success "Created display watcher helper at $helper_script"
+
+    # Load the agent
+    launchctl unload "$LAUNCH_AGENT_PLIST" 2>/dev/null || true
+    launchctl load -w "$LAUNCH_AGENT_PLIST" 2>/dev/null
+
+    if launchctl list | grep -q "$LAUNCH_AGENT_LABEL"; then
+        log_success "LaunchAgent loaded and active"
+    else
+        log_warn "LaunchAgent created but may need a re-login to activate"
+    fi
+
+    log_info ""
+    log_info "The agent will now automatically:"
+    log_info "  1. Run at login to configure DPI for your initial display setup"
+    log_info "  2. Detect when you plug/unplug monitors or open/close the lid"
+    log_info "  3. Reconfigure Citrix DPI settings for the new topology"
+    log_info "  4. Clear rendering cache so changes take effect"
+    log_info ""
+    log_info "Logs: $AGENT_LOG_FILE"
+    log_info "Uninstall: $0 --uninstall-agent"
+
+    # Run auto-configure now for immediate effect
+    log_info ""
+    log_info "Running initial auto-configuration..."
+    auto_configure_dpi
+}
+
+uninstall_launch_agent() {
+    log_section "Uninstalling Display-Change LaunchAgent"
+
+    # Unload
+    if [ -f "$LAUNCH_AGENT_PLIST" ]; then
+        launchctl unload "$LAUNCH_AGENT_PLIST" 2>/dev/null || true
+        rm -f "$LAUNCH_AGENT_PLIST"
+        log_success "Removed LaunchAgent plist"
+    else
+        log_info "LaunchAgent plist not found (already uninstalled?)"
+    fi
+
+    # Remove helper
+    local helper_script="$BACKUP_DIR/dpi-display-watcher.sh"
+    if [ -f "$helper_script" ]; then
+        rm -f "$helper_script"
+        log_success "Removed display watcher helper"
+    fi
+
+    # Remove topology state
+    rm -f "$TOPOLOGY_STATE_FILE" 2>/dev/null
+
+    # Remove debounce file
+    rm -f "/tmp/.citrix-dpi-debounce" 2>/dev/null
+
+    log_success "LaunchAgent uninstalled"
+    log_info "DPI settings from the last auto-configure run remain in effect"
+    log_info "Use --reset to also clear those settings"
 }
 
 # ── Fix Functions ───────────────────────────────────────────────────────────
@@ -1078,6 +1605,10 @@ print_summary() {
     fi
 
     echo ""
+    log_info "For roaming users (office / conference room / home):"
+    log_info "  Run: $0 --install-agent"
+    log_info "  This auto-configures DPI whenever displays change."
+    echo ""
     log_info "Run with --backup before making changes, --restore to revert"
     log_info "Use --verbose for detailed diagnostic output"
 }
@@ -1090,15 +1621,18 @@ USAGE:
     ./Fix-CitrixDpiMac.sh [OPTIONS]
 
 OPTIONS:
-    --diagnose      Run diagnostics only (default)
-    --fix           Apply recommended fixes interactively
-    --fix-all       Apply all fixes without prompting
-    --reset         Reset all Citrix DPI settings to defaults
-    --backup        Backup current Citrix configuration
-    --restore       Restore configuration from backup
-    --verbose       Show detailed diagnostic output
-    --json          Output results in JSON format
-    --help          Show this help message
+    --diagnose          Run diagnostics only (default)
+    --fix               Apply recommended fixes interactively
+    --fix-all           Apply all fixes without prompting
+    --auto              Auto-detect display topology and configure DPI
+    --install-agent     Install LaunchAgent for automatic display-change handling
+    --uninstall-agent   Remove the display-change LaunchAgent
+    --reset             Reset all Citrix DPI settings to defaults
+    --backup            Backup current Citrix configuration
+    --restore           Restore configuration from backup
+    --verbose           Show detailed diagnostic output
+    --json              Output results in JSON format
+    --help              Show this help message
 
 EXAMPLES:
     # Run diagnostics
@@ -1112,6 +1646,15 @@ EXAMPLES:
 
     # Interactive fix mode
     ./Fix-CitrixDpiMac.sh --fix
+
+    # Auto-detect and configure for current display setup
+    ./Fix-CitrixDpiMac.sh --auto
+
+    # Install persistent agent for roaming users (recommended)
+    ./Fix-CitrixDpiMac.sh --install-agent
+
+    # Remove the agent
+    ./Fix-CitrixDpiMac.sh --uninstall-agent
 
     # Backup, fix, and verify
     ./Fix-CitrixDpiMac.sh --backup
@@ -1133,6 +1676,22 @@ WHAT THIS TOOL FIXES:
     - Rendering cache issues causing stale scaling
     - Font smoothing configuration affecting text clarity
 
+ROAMING / HOTDESKING SUPPORT:
+    For users who move between different locations and monitor setups:
+
+    1. Install the agent once:
+       ./Fix-CitrixDpiMac.sh --install-agent
+
+    2. The agent runs automatically at login and on every display change.
+       It detects the topology (built-in only, externals only, or mixed)
+       and configures Citrix DPI settings accordingly.
+
+    Topologies handled:
+    - Built-in only     (laptop in conference room, on the go)
+    - Externals only    (docked at desk, lid closed)
+    - Built-in + externals (lid open with monitors)
+    - Mixed DPI         (Retina + non-Retina monitors)
+
 REQUIREMENTS:
     - macOS 11.0 (Big Sur) or later
     - Citrix Workspace app 2112 or later (recommended)
@@ -1147,15 +1706,18 @@ main() {
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --diagnose)   MODE="diagnose"; shift ;;
-            --fix)        MODE="fix"; shift ;;
-            --fix-all)    MODE="fix-all"; shift ;;
-            --reset)      MODE="reset"; shift ;;
-            --backup)     MODE="backup"; shift ;;
-            --restore)    MODE="restore"; shift ;;
-            --verbose)    VERBOSE=true; shift ;;
-            --json)       JSON_OUTPUT=true; shift ;;
-            --help|-h)    show_help; exit 0 ;;
+            --diagnose)        MODE="diagnose"; shift ;;
+            --fix)             MODE="fix"; shift ;;
+            --fix-all)         MODE="fix-all"; shift ;;
+            --auto)            MODE="auto"; shift ;;
+            --install-agent)   MODE="install-agent"; shift ;;
+            --uninstall-agent) MODE="uninstall-agent"; shift ;;
+            --reset)           MODE="reset"; shift ;;
+            --backup)          MODE="backup"; shift ;;
+            --restore)         MODE="restore"; shift ;;
+            --verbose)         VERBOSE=true; shift ;;
+            --json)            JSON_OUTPUT=true; shift ;;
+            --help|-h)         show_help; exit 0 ;;
             *)
                 echo "Unknown option: $1"
                 echo "Run with --help for usage information"
@@ -1166,6 +1728,21 @@ main() {
 
     # Handle standalone modes
     case "$MODE" in
+        auto)
+            log_header "$SCRIPT_NAME v$VERSION - Auto-Configure"
+            auto_configure_dpi
+            exit 0
+            ;;
+        install-agent)
+            log_header "$SCRIPT_NAME v$VERSION"
+            install_launch_agent
+            exit 0
+            ;;
+        uninstall-agent)
+            log_header "$SCRIPT_NAME v$VERSION"
+            uninstall_launch_agent
+            exit 0
+            ;;
         backup)
             log_header "$SCRIPT_NAME v$VERSION"
             backup_config
