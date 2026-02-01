@@ -1,6 +1,6 @@
-# Citrix Black Screen Historical Impact Report
+# Citrix Troubleshooting Toolkit
 
-PowerShell script to identify and report on users historically impacted by Citrix black screen issues requiring explorer.exe restart.
+A collection of tools for diagnosing and resolving common Citrix environment issues, including black screen incidents on VDA servers and DPI scaling problems on macOS clients.
 
 ## Problem Statement
 
@@ -205,9 +205,144 @@ $Report = Get-Content vda-servers.txt | .\Get-CitrixBlackScreenReport.ps1
 $Report | ConvertTo-Json | Out-File "C:\Reports\BlackScreen.json"
 ```
 
+---
+
+# Citrix DPI Matching Fix Tool for macOS
+
+Bash script that detects, diagnoses, and fixes DPI scaling issues with Citrix Workspace app on macOS, especially on Retina/HiDPI displays.
+
+## Problem Statement
+
+macOS users with Retina or external HiDPI displays frequently experience:
+- Blurry text in Citrix sessions
+- Incorrect resolution scaling after connecting external monitors
+- DPI mismatch when dragging sessions between displays
+- Sessions not matching native display resolution
+
+## Prerequisites
+
+- macOS 11.0 (Big Sur) or later
+- Citrix Workspace app installed (2112+ recommended)
+- Terminal / shell access
+- No administrator/sudo required for standard fixes
+
+## Usage Examples
+
+### Run Diagnostics (Default)
+
+```bash
+./Fix-CitrixDpiMac.sh
+```
+
+### Verbose Diagnostics
+
+```bash
+./Fix-CitrixDpiMac.sh --diagnose --verbose
+```
+
+### Apply All Fixes Automatically
+
+```bash
+./Fix-CitrixDpiMac.sh --fix-all
+```
+
+### Interactive Fix Mode
+
+```bash
+./Fix-CitrixDpiMac.sh --fix
+```
+
+### Backup Before Fixing
+
+```bash
+./Fix-CitrixDpiMac.sh --backup
+./Fix-CitrixDpiMac.sh --fix-all
+./Fix-CitrixDpiMac.sh --diagnose
+```
+
+### JSON Output for Automation
+
+```bash
+./Fix-CitrixDpiMac.sh --json
+```
+
+### Reset to Defaults
+
+```bash
+./Fix-CitrixDpiMac.sh --reset
+```
+
+## Parameters
+
+| Option | Description |
+|--------|-------------|
+| `--diagnose` | Run diagnostics only (default) |
+| `--fix` | Apply recommended fixes interactively |
+| `--fix-all` | Apply all fixes without prompting |
+| `--reset` | Reset all Citrix DPI settings to defaults |
+| `--backup` | Backup current Citrix configuration |
+| `--restore` | Restore configuration from backup |
+| `--verbose` | Show detailed diagnostic output |
+| `--json` | Output results in JSON format |
+
+## What the Tool Detects and Fixes
+
+### Client-Side Checks
+1. **macOS version and architecture** — Verifies compatibility, detects Rosetta emulation
+2. **Display configuration** — Enumerates all displays, detects Retina/HiDPI, identifies mixed-DPI setups
+3. **Citrix Workspace version** — Checks minimum version for DPI matching support
+4. **DPI preference audit** — Checks `DPIMatchingEnabled`, `HighDPI`, `UseHighDPI`, and other keys
+5. **ICA configuration files** — Scans `module.ini` and `AppServerDefaults.ini` for hardcoded resolutions
+6. **macOS display preferences** — Font smoothing, scaled resolution mode
+
+### Fixes Applied
+- Enables `DPIMatchingEnabled` in Citrix preferences
+- Enables `HighDPI` and `UseHighDPI` modes
+- Enables `DesktopApplianceDPIMatchingEnabled` for desktop sessions
+- Removes hardcoded resolution overrides from ICA config files
+- Writes DPI settings to `module.ini`
+- Clears Citrix rendering cache
+- Enables macOS font smoothing if disabled
+- Restarts Citrix Workspace to apply changes
+
+### Server-Side Policy Reminders
+The tool also provides guidance on server-side Citrix policies that must be configured:
+- **Display memory limit** — Should be adequate for HiDPI (e.g., 131072 KB)
+- **DPI matching** — Must be enabled or set to allow client setting
+- **Legacy graphics mode** — Must be disabled
+- **Use video codec for compression** — Recommended for actively changing regions
+
+## Troubleshooting
+
+### Fixes Applied But Session Still Blurry
+
+1. **Disconnect and reconnect** — Don't just resize; fully disconnect the session and reconnect
+2. **Check server-side policies** — Client fixes alone are not sufficient if server policies block DPI matching
+3. **Verify VDA version** — VDA must be 1912 LTSR CU3+ or 2103+ for best DPI support
+
+### Mixed-DPI Multi-Monitor Issues
+
+When using Retina + non-Retina displays simultaneously:
+1. Run `./Fix-CitrixDpiMac.sh --fix-all` to ensure all client settings are correct
+2. Ask your Citrix admin to enable the "DPI matching" policy
+3. Consider using same-DPI displays for the best experience
+
+### Need to Undo Changes
+
+```bash
+# Restore from backup
+./Fix-CitrixDpiMac.sh --restore
+
+# Or reset everything to defaults
+./Fix-CitrixDpiMac.sh --reset
+```
+
+---
+
 ## Version History
 
-- **1.0** (2025-12-20): Initial release
+- **1.0** (2025-12-20): Initial release — Black screen reporting tools
+- **1.1** (2025-12-20): Added macOS DPI matching diagnostic and fix tool
 
 ## Support
 
